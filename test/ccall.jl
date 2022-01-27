@@ -976,9 +976,17 @@ for (t, v) in ((Complex{Int32}, :ci32), (Complex{Int64}, :ci64),
         let cf = @cfunction($fname, Ref{AbstractString}, (Ref{Any},))
             @test_throws TypeError ccall(cf, Any, (Ref{Any},), $v)
         end
-        let cf = @cfunction($fname, AbstractString, (Ref{Any},))
+        let cf = @cfunction($fname, Complex{UInt32}, (Ref{Any},))
             @test_throws TypeError ccall(cf, Any, (Ref{Any},), $v)
         end
+        let cf = @cfunction($fname, Ref{Complex{UInt32}}, (Ref{Any},))
+            @test_throws TypeError ccall(cf, Any, (Ref{Any},), $v)
+        end
+        local mkcb(::Type{T}) where {T} = @cfunction($fname, Ref{Complex{T}}, (Ref{Any},))
+        if a isa Complex
+            @test ccall(mkcb(typeof(a.re)), Any, (Ref{Any},), $v) === $v
+        end
+        #FIXME: @test_throws TypeError ccall(mkcb(UInt32), Any, (Ref{Any},), $v)
     end
 end
 
@@ -1484,7 +1492,17 @@ end
 @test_throws(TypeError, @eval if false; ccall(:fn, Some.var, ()); end)
 @test_throws(TypeError, @eval if false; ccall(:fn, Cvoid, (Some.var,), Some(0)); end)
 @test_throws(ErrorException("ccall method definition: Vararg not allowed for argument list"),
-             @eval ccall(+, Int, (Vararg{Int},), 1))
+             @eval ccall(:fn, Int, (Vararg{Int},), 1))
+@test_throws(ErrorException("ccall method definition: argument 1 type doesn't correspond to a C type"),
+             @eval ccall(:fn, Int, (Integer,), 1))
+@test_throws(ErrorException("ccall method definition: return type doesn't correspond to a C type"),
+             @eval ccall(:fn, Integer, (Integer,), 1))
+# This is hard to test: @test_throws(ErrorException("ccall argument 1 type doesn't correspond to a C type"),
+#                                    @eval ccall(:fn, Int, (Union{},), 1))
+@test_throws(ErrorException("ccall argument 1 type doesn't correspond to a C type"),
+             @eval ccall(:fn, Int, (Nothing,), nothing))
+@test_throws(ErrorException("ccall return type struct fields cannot contain a reference"),
+             @eval ccall(:fn, typeof(Ref("")), ()))
 
 # test for malformed syntax errors
 @test Expr(:error, "more arguments than types for ccall") == Meta.lower(@__MODULE__, :(ccall(:fn, A, (), x)))
@@ -1525,10 +1543,18 @@ evalf_callback_19805(ci::callinfos_19805{FUNC_FT}) where {FUNC_FT} = ci.f(0.5)::
              @eval () -> @cfunction(+, Int, (Ref{T}, Ref{T})) where T)
 @test_throws(ErrorException("could not evaluate cfunction return type (it might depend on a local variable)"),
              @eval () -> @cfunction(+, Ref{T}, (Int, Int)) where T)
-@test_throws(ErrorException("cfunction argument 2 doesn't correspond to a C type"),
+@test_throws(ErrorException("cfunction argument 2 type doesn't correspond to a C type"),
              @eval @cfunction(+, Int, (Int, Nothing)))
+@test_throws(ErrorException("cfunction argument 2 type doesn't correspond to a C type"),
+             @eval @cfunction(+, Int, (Int, Union{})))
 @test_throws(ErrorException("cfunction return type Ref{Any} is invalid. Use Any or Ptr{Any} instead."),
              @eval @cfunction(+, Ref{Any}, (Int, Int)))
+@test_throws(ErrorException("cfunction method definition: argument 1 type doesn't correspond to a C type"),
+             @eval @cfunction(+, Int, (Integer, Integer)))
+@test_throws(ErrorException("cfunction method definition: return type doesn't correspond to a C type"),
+             @eval @cfunction(+, Integer, (Int, Int)))
+@test_throws(ErrorException("cfunction return type struct fields cannot contain a reference"),
+             @eval @cfunction(+, typeof(Ref("")), ()))
 
 # test Ref{abstract_type} calling parameter passes a heap box
 abstract type Abstract22734 end
